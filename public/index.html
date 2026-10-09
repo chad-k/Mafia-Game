@@ -63,14 +63,15 @@ function priv(id){
   actor=id;
   const me=S.players.find(p=>p.id===id),alive=me.alive,mine=S.mine[id]||{},role=mine.role;
   let h=role?`<div class="card"><span class="dim">${esc(me.name)}, you are</span><div class="role ${role}">${R[role]}</div><div class="dim">${D[role]}</div>${role==="m"&&mine.mates.length?`<div style="margin-top:.5rem">Fellow Mafia: <b>${mine.mates.map(i=>esc(nm(i))).join(", ")}</b></div>`:""}</div>`:"";
+  if(mine.peek)h+=`<div class="card">Investigation: <b>${esc(mine.peek.name)}</b> is ${mine.peek.mafia?"Mafia":"not Mafia"}.</div>`;
   if(S.phase==="night"){
     if(!alive)return h+`<p>You are out. Watch quietly.</p>`;
     if(role==="v")return h+`<p>The town sleeps. Stay quiet and wait for morning.</p>`;
+    if(role==="d"&&mine.pick)return h+`<p>You investigated ${esc(nm(mine.pick))}. Wait for morning.</p>`;
     const al=S.players.filter(p=>p.alive);
-    const opts=role==="m"?al.filter(p=>p.id!==id&&!mine.mates.includes(p.id)):role==="d"?al.filter(p=>p.id!==id):al;
-    return h+`<p>${{m:"Choose a victim. Your fellow Mafia see your pick, and the most-picked player is eliminated.",h:"Choose who to protect tonight.",d:"Choose who to investigate."}[role]}</p>`+pick(opts,mine.counts||{},mine.pick)+`<p class="dim">Tap again to change. The night ends when everyone has chosen.</p>`;
+    const opts=role==="m"?al.filter(p=>p.id!==id&&!mine.mates.includes(p.id)):role==="d"?al.filter(p=>p.id!==id):role==="h"&&mine.noSelf?al.filter(p=>p.id!==id):al;
+    return h+`<p>${{m:"Choose a victim. Your fellow Mafia see your pick, and the most-picked player is eliminated.",h:mine.noSelf?"Choose who to protect tonight. You protected yourself last night, so you cannot do it again.":"Choose who to protect tonight.",d:"Choose who to investigate. You get one check per night and cannot change it."}[role]}</p>`+pick(opts,mine.counts||{},mine.pick)+`<p class="dim">${role==="d"?"":"Tap again to change. "}The night ends when everyone has chosen.</p>`;
   }
-  if(mine.peek)h+=`<div class="card">Investigation: <b>${esc(mine.peek.name)}</b> is ${mine.peek.mafia?"Mafia":"not Mafia"}.</div>`;
   if(!alive)return h+`<p>You are out. Watch quietly.</p>`;
   return h+`<h2 style="font-size:1.4rem">Vote</h2>`+pick(S.players.filter(p=>p.alive&&p.id!==id),S.counts,mine.pick)+`<p class="dim">Votes show as dots. Tap again to change. The vote ends when every living player has voted.</p>`;
 }

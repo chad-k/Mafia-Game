@@ -45,6 +45,8 @@ function view(g, cid) {
   if (g.phase !== "lobby") own.forEach(p => {
     const o = { role: p.role, mates: p.mates || [], pick: act(p.id) ? act(p.id).target : null };
     if (p.peek && p.peek.round === g.round) o.peek = p.peek;
+    if (night && p.role === "h" && p.selfRound === g.round - 1) o.noSelf = true;
+    if (night && p.role === "d" && act(p.id)) { const t = g.players.find(x => x.id === act(p.id).target); o.peek = { round: g.round, name: t.name, mafia: t.role === "m" }; }
     if (night && p.role === "m") {
       const mc = {};
       [p.id, ...o.mates].forEach(i => { const a = act(i); if (a) mc[a.target] = (mc[a.target] || 0) + 1; });
@@ -82,6 +84,7 @@ function step(g, force) {
     mafia.forEach(p => { const t = g.acts[p.id].target; cnt[t] = (cnt[t] || 0) + 1; });
     const mx = Math.max(...Object.values(cnt)), top = Object.keys(cnt).filter(k => cnt[k] === mx);
     const kill = top[Math.random() * top.length | 0], save = doc && g.acts[doc.id].target;
+    if (doc && save === doc.id) doc.selfRound = g.round;
     g.msg = "Someone was attacked, but the Doctor saved them. Nobody died."; g.out = null;
     if (kill !== save) {
       const v = g.players.find(p => p.id === kill); v.alive = false;
@@ -106,7 +109,7 @@ function step(g, force) {
 function start(g) {
   const n = g.players.length, m = Math.floor(n / 3);
   const rl = shuffle([..."m".repeat(m), "d", "h", ..."v".repeat(n - m - 2)]);
-  g.players.forEach((p, i) => { p.role = rl[i]; p.alive = true; p.peek = null; });
+  g.players.forEach((p, i) => { p.role = rl[i]; p.alive = true; p.peek = null; p.selfRound = null; });
   const mafia = g.players.filter(p => p.role === "m").map(p => p.id);
   g.players.forEach(p => { p.mates = p.role === "m" ? mafia.filter(x => x !== p.id) : []; });
   Object.assign(g, { phase: "night", round: 1, acts: {}, msg: "", out: null, win: null });
@@ -155,6 +158,8 @@ function handle(cid, m) {
         if (p.role === "v") throw new Error("Villagers have no night action.");
         if (p.role === "m" && (t.role === "m")) throw new Error("Pick someone outside the Mafia.");
         if (p.role === "d" && t === p) throw new Error("Pick someone else.");
+        if (p.role === "h" && t === p && p.selfRound === g.round - 1) throw new Error("You protected yourself last night. Pick someone else.");
+        if (p.role === "d" && g.acts[p.id]) throw new Error("You already investigated someone tonight.");
       } else if (t === p) throw new Error("You can't vote for yourself.");
       g.acts[p.id] = { target: t.id }; step(g); break;
     }
