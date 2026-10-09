@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mafia</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#12151c;--panel:#1c212b;--ink:#ebe5d6;--dim:#9a9686;--amber:#e8b44c;--red:#c4403a;--line:#2f3644;--onamber:#1a1405}
+@media (prefers-color-scheme:light){:root{--bg:#ece6d6;--panel:#f6f1e4;--ink:#1d1a14;--dim:#6b6657;--amber:#9a6a0c;--red:#a82d27;--line:#d3cab4;--onamber:#fff8e6}}
+*,*:before,*:after{box-sizing:inherit}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font:17px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:30rem;margin:0 auto;padding:1.5rem 1.25rem 3rem}
+h1,h2{font-family:Georgia,"Times New Roman",serif;line-height:1.1;margin:0 0 .75rem}
+h1{font-size:3.4rem;letter-spacing:-.02em}h2{font-size:1.8rem}
+p{margin:0 0 1rem}.dim{color:var(--dim)}
+.night h1,.night h2{color:var(--amber)}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+.btn{display:block;width:100%;padding:.9rem 1rem;border-radius:6px;border:2px solid var(--amber);background:var(--amber);color:var(--onamber);font-weight:700;margin-top:1rem}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.list{display:grid;gap:.5rem;margin:1rem 0}
+.row{display:flex;justify-content:space-between;align-items:center;padding:.7rem .9rem;background:var(--panel);border:2px solid var(--line);border-radius:6px;text-align:left;width:100%}
+button.row:hover{border-color:var(--amber)}
+.row.sel{border-color:var(--red)}.row.dead{opacity:.45;text-decoration:line-through}
+input{display:block;width:100%;font:inherit;padding:.8rem .9rem;border-radius:6px;border:2px solid var(--line);background:var(--panel);color:var(--ink);margin-top:.6rem}
+.code{font:700 3.2rem Georgia,serif;letter-spacing:.2em;color:var(--amber);margin:.25rem 0 1rem}
+.role{font:700 2rem Georgia,serif}.role.m{color:var(--red)}
+.card{background:var(--panel);border:2px solid var(--line);border-radius:6px;padding:1rem 1.1rem;margin:0 0 1rem}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;color:var(--dim);font-size:.9rem}
+.top button{background:none;border:0;color:var(--dim);text-decoration:underline;font-size:.9rem}
+.x{background:none;border:0;color:var(--dim);font-size:1.3rem}
+.err{color:var(--red);font-weight:600}
+a{color:var(--amber)}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+const R={m:"Mafia",d:"Detective",h:"Doctor",v:"Villager"};
+const D={m:"Each night, secretly agree on a victim with your fellow Mafia. By day, blend in.",d:"Each night, investigate one player. You learn whether they are Mafia.",h:"Each night, protect one player from the Mafia. You may protect yourself.",v:"No night power. Use your voice and your vote."};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+const cid=store.get("mf-cid")||(()=>{const c=(crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Date.now().toString(36)+"xxxx");store.set("mf-cid",c);return c})();
+let ws,S=null,online=false,cur=null,actor=null,curKey="",ui={name:store.get("mf-name")||"",code:"",err:"",loc:""};
+
+function connect(){
+  ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host);
+  ws.onopen=()=>{ws.send(JSON.stringify({t:"hello",cid}));online=true;render()};
+  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.t==="state"){S=m;ui.err=""}else if(m.t==="home"){S=null;cur=null}else if(m.t==="error")ui.err=m.msg;render()};
+  ws.onclose=()=>{online=false;render();setTimeout(connect,1500)};
+}
+const send=o=>{if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))};
+const nm=id=>(S.players.find(p=>p.id===id)||{}).name||"?";
+
+function pick(opts,counts,sel){
+  return `<div class="list">${opts.map(p=>`<button class="row ${sel===p.id?"sel":""}" data-a="act" data-id="${esc(p.id)}"><span>${esc(p.name)}</span><span class="dim">${counts[p.id]?"●".repeat(counts[p.id]):""}</span></button>`).join("")}</div>`;
+}
+function priv(id){
+  actor=id;
+  const me=S.players.find(p=>p.id===id),alive=me.alive,mine=S.mine[id]||{},role=mine.role;
+  let h=role?`<div class="card"><span class="dim">${esc(me.name)}, you are</span><div class="role ${role}">${R[role]}</div><div class="dim">${D[role]}</div>${role==="m"&&mine.mates.length?`<div style="margin-top:.5rem">Fellow Mafia: <b>${mine.mates.map(i=>esc(nm(i))).join(", ")}</b></div>`:""}</div>`:"";
+  if(S.phase==="night"){
+    if(!alive)return h+`<p>You are out. Watch quietly.</p>`;
+    if(role==="v")return h+`<p>The town sleeps. Stay quiet and wait for morning.</p>`;
+    const al=S.players.filter(p=>p.alive);
+    const opts=role==="m"?al.filter(p=>p.id!==id&&!mine.mates.includes(p.id)):role==="d"?al.filter(p=>p.id!==id):al;
+    return h+`<p>${{m:"Choose a victim. Your fellow Mafia see your pick, and the most-picked player is eliminated.",h:"Choose who to protect tonight.",d:"Choose who to investigate."}[role]}</p>`+pick(opts,mine.counts||{},mine.pick)+`<p class="dim">Tap again to change. The night ends when everyone has chosen.</p>`;
+  }
+  if(mine.peek)h+=`<div class="card">Investigation: <b>${esc(mine.peek.name)}</b> is ${mine.peek.mafia?"Mafia":"not Mafia"}.</div>`;
+  if(!alive)return h+`<p>You are out. Watch quietly.</p>`;
+  return h+`<h2 style="font-size:1.4rem">Vote</h2>`+pick(S.players.filter(p=>p.alive&&p.id!==id),S.counts,mine.pick)+`<p class="dim">Votes show as dots. Tap again to change. The vote ends when every living player has voted.</p>`;
+}
+function render(){
+  const a=$("#app"),f=document.activeElement,fid=f&&f.id,fs=f&&f.selectionStart;let h="",cls="";
+  if(!S){
+    h=`<h1>Mafia</h1><p>Play on your own phone, or share a phone with others. One person creates a game and shares the code. 5 to 15 players.</p>
+    <input id="nm" placeholder="Your name" maxlength="16" autocomplete="off" value="${esc(ui.name)}" oninput="ui.name=this.value">
+    ${online?`<button class="btn" data-a="create">Create a game</button>
+    <input id="cd" placeholder="Game code" maxlength="4" autocomplete="off" value="${esc(ui.code)}" oninput="ui.code=this.value" style="text-transform:uppercase">
+    <button class="btn ghost" data-a="join">Join with code</button>`:`<p class="dim" style="margin-top:1rem">Connecting… the server may take up to a minute to wake up.</p>`}
+    ${ui.err?`<p class="err" role="alert" style="margin-top:1rem">${esc(ui.err)}</p>`:""}
+    <p class="dim" style="margin-top:2rem">Just one phone for everyone? <a href="/solo.html">Play the one-phone version</a>.</p>`;
+  }else{
+    const top=`<div class="top"><span>Game ${esc(S.code)}${S.phase!=="lobby"?" · "+S.players.filter(p=>p.alive).length+" alive":""}${online?"":" · reconnecting…"}</span><button data-a="leave">Leave</button></div>`;
+    const err=ui.err?`<p class="err" role="alert">${esc(ui.err)}</p>`:"";
+    if(S.phase==="lobby"){
+      h=`<h2>Waiting for players</h2><p class="dim">Share this code. Everyone opens this page and joins with it.</p><div class="code">${esc(S.code)}</div>
+      <div class="list">${S.players.map(p=>`<div class="row"><span>${esc(p.name)}</span>${p.owner===S.me?`<button class="x" data-a="rm" data-id="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">×</button>`:`<span class="dim">${p.id===S.me?"you":""}</span>`}</div>`).join("")}</div>
+      <p class="dim" style="margin-bottom:.2rem">Sharing this phone with others? Add them here. You will pass the phone around during the game.</p>
+      <input id="lc" placeholder="Add a player on this phone" maxlength="16" autocomplete="off" value="${esc(ui.loc)}" oninput="ui.loc=this.value">
+      <button class="btn ghost" data-a="addlocal">Add to this phone</button>${err}
+      ${S.isHost?`<button class="btn" data-a="start" ${S.players.length<5?"disabled":""}>${S.players.length<5?"Need "+(5-S.players.length)+" more players":"Deal roles and start"}</button>`:`<p class="dim" style="margin-top:1rem">The host will start the game.</p>`}`;
+    }else if(S.phase==="night"||S.phase==="day"){
+      const L=S.players.filter(p=>p.id===S.me||p.owner===S.me),pool=L.filter(p=>p.alive).length?L.filter(p=>p.alive):L;
+      const key=S.phase+S.round;if(key!==curKey){curKey=key;cur=null}
+      if(pool.length===1)cur=pool[0].id;
+      cls=S.phase==="night"?"night":"";
+      h=S.phase==="night"?`<h2>Night ${S.round}</h2>`:`<h2>Day ${S.round}</h2><p>${esc(S.msg)}</p>${S.out?`<div class="card"><b>${esc(S.out.name)}</b> was a ${R[S.out.role]}.</div>`:""}`;
+      if(cur&&pool.some(x=>x.id===cur))h+=priv(cur)+(pool.length>1?`<button class="btn ghost" data-a="hide">Hide screen and pass the phone</button>`:"");
+      else h+=`<p>Pass the phone around. Only the player whose turn it is should look.</p><div class="list">${pool.map(x=>`<button class="row" data-a="who" data-id="${esc(x.id)}"><span>I'm ${esc(x.name)}</span><span class="dim">${S.phase==="day"&&S.voted.includes(x.id)?"voted":""}</span></button>`).join("")}</div>`;
+      h+=err;
+      if(S.phase==="day"&&S.isHost)h+=`<button class="btn ghost" data-a="force">End vote now</button>`;
+    }else if(S.phase==="result"){
+      h=`<h2>${esc(S.msg)}</h2>${S.out?`<div class="card"><b>${esc(S.out.name)}</b> was a ${R[S.out.role]}.</div>`:""}${S.isHost?`<button class="btn" data-a="next">Night falls</button>`:`<p class="dim">Waiting for the host to start the night.</p>`}`;
+    }else{
+      h=`<h2>${S.win==="Town"?"Town wins.":"Mafia wins."}</h2><div class="list">${S.players.map(p=>`<div class="row ${p.alive?"":"dead"}"><span>${esc(p.name)}</span><span class="dim">${R[(S.roles||{})[p.id]]||""}</span></div>`).join("")}</div>${S.isHost?`<button class="btn" data-a="again">Play again with the same players</button>`:`<p class="dim">Waiting for the host to reset.</p>`}`;
+    }
+    h=top+h;
+  }
+  a.className=cls;a.innerHTML=h;
+  if(fid){const e=document.getElementById(fid);if(e){e.focus();try{e.setSelectionRange(fs,fs)}catch(_){}}}
+}
+const H={
+  create:()=>{store.set("mf-name",ui.name);send({t:"create",name:ui.name})},
+  join:()=>{store.set("mf-name",ui.name);send({t:"join",code:ui.code,name:ui.name})},
+  leave:()=>{send({t:"leave"})},
+  start:()=>send({t:"start"}),force:()=>send({t:"force"}),next:()=>send({t:"next"}),again:()=>send({t:"again"}),
+  addlocal:()=>{if(ui.loc.trim()){send({t:"addLocal",name:ui.loc});ui.loc=""}},
+  rm:id=>send({t:"rmLocal",id}),
+  act:id=>send({t:"act",as:actor,target:id}),
+  who:id=>{cur=id;render()},hide:()=>{cur=null;render()}
+};
+document.addEventListener("click",e=>{const b=e.target.closest("[data-a]");if(b&&H[b.dataset.a]){ui.err="";H[b.dataset.a](b.dataset.id)}});
+document.addEventListener("keydown",e=>{if(e.key!=="Enter")return;if(e.target.id==="lc")H.addlocal();else if(e.target.id==="nm"||e.target.id==="cd")ui.code?H.join():null});
+render();connect();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "mafia",
+  "version": "1.0.0",
+  "description": "Mafia party game: everyone on their own phone, one shared phone, or a mix",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ws": "^8.18.0" }
+}

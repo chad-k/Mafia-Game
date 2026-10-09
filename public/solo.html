@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mafia</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#12151c;--panel:#1c212b;--ink:#ebe5d6;--dim:#9a9686;--amber:#e8b44c;--red:#c4403a;--line:#2f3644;--onamber:#1a1405}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#ece6d6;--panel:#f6f1e4;--ink:#1d1a14;--dim:#6b6657;--amber:#9a6a0c;--red:#a82d27;--line:#d3cab4;--onamber:#fff8e6}}
+:root[data-theme="light"]{--bg:#ece6d6;--panel:#f6f1e4;--ink:#1d1a14;--dim:#6b6657;--amber:#9a6a0c;--red:#a82d27;--line:#d3cab4;--onamber:#fff8e6}
+:root[data-theme="dark"]{--bg:#12151c;--panel:#1c212b;--ink:#ebe5d6;--dim:#9a9686;--amber:#e8b44c;--red:#c4403a;--line:#2f3644;--onamber:#1a1405}
+*,*:before,*:after{box-sizing:inherit}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font:17px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:30rem;margin:0 auto;padding:1.5rem 1.25rem 3rem}
+h1,h2{font-family:Georgia,"Times New Roman",serif;font-weight:700;line-height:1.1;margin:0 0 .75rem}
+h1{font-size:3.4rem;letter-spacing:-.02em}
+h2{font-size:1.9rem}
+p{margin:0 0 1rem;max-width:34em}
+.dim{color:var(--dim)}
+.night h2,.night h1{color:var(--amber)}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+.btn{display:block;width:100%;padding:.9rem 1rem;border-radius:6px;border:2px solid var(--amber);background:var(--amber);color:var(--onamber);font-weight:700;margin-top:1rem}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.list{display:grid;gap:.5rem;margin:1rem 0}
+.row{display:flex;justify-content:space-between;align-items:center;padding:.7rem .9rem;background:var(--panel);border:2px solid var(--line);border-radius:6px;text-align:left;width:100%}
+button.row:hover{border-color:var(--amber)}
+.row.sel{border-color:var(--red);background:var(--panel)}
+.row.dead{opacity:.45;text-decoration:line-through}
+.add{display:flex;gap:.5rem}
+input{flex:1;min-width:0;font:inherit;padding:.8rem .9rem;border-radius:6px;border:2px solid var(--line);background:var(--panel);color:var(--ink)}
+.add button{padding:0 1.1rem;border-radius:6px;border:2px solid var(--amber);background:transparent;color:var(--amber);font-weight:700}
+.x{background:none;border:0;color:var(--dim);font-size:1.3rem;padding:0 .3rem}
+.role{font-family:Georgia,serif;font-size:2.6rem;font-weight:700;margin:.5rem 0}
+.role.mafia{color:var(--red)}
+.card{background:var(--panel);border:2px solid var(--line);border-radius:6px;padding:1.2rem;margin:1rem 0}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;color:var(--dim);font-size:.9rem}
+.top button{background:none;border:0;color:var(--dim);text-decoration:underline;font-size:.9rem}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+const ROLE={m:"Mafia",d:"Detective",h:"Doctor",v:"Villager"};
+const DESC={m:"Each night you and your fellow Mafia choose someone to eliminate. By day, blend in.",d:"Each night you secretly learn whether one player is Mafia.",h:"Each night you protect one player from the Mafia. You may protect yourself.",v:"You have no night power. Use your voice and your vote."};
+let S={phase:"setup",names:["","","","",""].map((_,i)=>["Ava","Ben","Cleo","Dev","Esme"][i]),players:[],i:0,shown:false,night:{},steps:[],step:0,sel:null,msg:"",out:null,round:1};
+const $=s=>document.querySelector(s);
+const alive=()=>S.players.filter(p=>p.alive);
+const mafiaAlive=()=>alive().filter(p=>p.role==="m");
+
+function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function start(){
+  const n=S.names.length,m=Math.max(1,Math.floor(n/3));
+  const roles=shuffle([..."m".repeat(m),"d","h",..."v".repeat(n-m-2)]);
+  S.players=S.names.map((name,i)=>({name,role:roles[i],alive:true}));
+  S.phase="reveal";S.i=0;S.shown=false;S.round=1;render();
+}
+function checkWin(){
+  const m=mafiaAlive().length,o=alive().length-m;
+  if(m===0)return"Town";if(m>=o)return"Mafia";return null;
+}
+function beginNight(){
+  S.night={};S.steps=["m"];
+  if(S.players.some(p=>p.role==="h"&&p.alive))S.steps.push("h");
+  if(S.players.some(p=>p.role==="d"&&p.alive))S.steps.push("d");
+  S.step=0;S.phase="night";S.sub="intro";S.sel=null;render();
+}
+function dawn(){
+  const k=S.night.m,s=S.night.h;
+  if(k!=null&&k!==s){S.players[k].alive=false;S.msg=S.players[k].name+" was found dead this morning.";S.out=k}
+  else{S.msg=k==null?"The night passed quietly.":"Someone was attacked, but the Doctor saved them. Nobody died.";S.out=null}
+  S.win=checkWin();S.phase="dawn";render();
+}
+function nextStep(){S.step++;S.sub="intro";S.sel=null;if(S.step>=S.steps.length)dawn();else render()}
+
+function render(){
+  const a=$("#app");let h="";
+  const night=(S.phase==="night"||S.phase==="reveal");
+  if(S.phase==="setup"){
+    h=`<h1>Mafia</h1><p>Pass-and-play on one device. Add 5 to 15 players, then pass the device around to reveal secret roles. The game runs the night for you.</p>
+    <div class="add"><input id="nm" placeholder="Player name" maxlength="16" autocomplete="off"><button onclick="addP()">Add</button></div>
+    <div class="list">${S.names.map((n,i)=>`<div class="row"><span>${esc(n)}</span><button class="x" aria-label="Remove ${esc(n)}" onclick="S.names.splice(${i},1);render()">×</button></div>`).join("")}</div>
+    <p class="dim">${S.names.length<5?"Add "+(5-S.names.length)+" more to start.":S.names.length+" players: "+Math.max(1,Math.floor(S.names.length/3))+" Mafia, 1 Detective, 1 Doctor, "+(S.names.length-Math.max(1,Math.floor(S.names.length/3))-2)+" Villagers."}</p>
+    <button class="btn" ${S.names.length<5?"disabled":""} onclick="start()">Deal roles</button>`;
+  }
+  else if(S.phase==="reveal"){
+    const p=S.players[S.i];
+    if(!S.shown)h=`<h2>Pass to ${esc(p.name)}</h2><p>Only ${esc(p.name)} should look at the screen.</p><button class="btn" onclick="S.shown=true;render()">I'm ${esc(p.name)}, show my role</button>`;
+    else{
+      const mates=p.role==="m"?S.players.filter(q=>q.role==="m"&&q!==p).map(q=>q.name):[];
+      h=`<p class="dim">${esc(p.name)}, you are</p><div class="role ${p.role==="m"?"mafia":""}">${ROLE[p.role]}</div><p>${DESC[p.role]}</p>
+      ${p.role==="m"?`<div class="card">${mates.length?"Fellow Mafia: <b>"+mates.map(esc).join(", ")+"</b>":"You are the only Mafia member."}</div>`:""}
+      <button class="btn" onclick="S.i++;S.shown=false;if(S.i>=S.players.length)beginNight();else render()">${S.i+1>=S.players.length?"Hide and start the night":"Hide and pass on"}</button>`;
+    }
+  }
+  else if(S.phase==="night"){
+    const r=S.steps[S.step],nm={m:"Mafia",h:"Doctor",d:"Detective"}[r];
+    if(S.sub==="intro"){
+      h=`<p class="dim">Night ${S.round}</p><h2>${S.step===0?"Everyone, close your eyes.":nm+", wake up."}</h2><p>${S.step===0?"Mafia, wake up. ":""}Hand the device to ${r==="m"?"a Mafia member":"the "+nm}. Nobody else looks.</p><button class="btn" onclick="S.sub='pick';render()">I'm the ${nm}</button>`;
+    }else if(S.sub==="pick"){
+      const opts=alive().filter(p=>r==="m"?p.role!=="m":r==="d"?p.role!=="d":true);
+      const q={m:"Who does the Mafia eliminate?",h:"Who do you protect tonight?",d:"Who do you investigate?"}[r];
+      h=`<h2>${q}</h2><div class="list">${opts.map(p=>`<button class="row ${S.sel===S.players.indexOf(p)?"sel":""}" onclick="S.sel=${S.players.indexOf(p)};render()">${esc(p.name)}</button>`).join("")}</div>
+      <button class="btn" ${S.sel==null?"disabled":""} onclick="lock('${r}')">Confirm</button>`;
+    }else{
+      const t=S.players[S.night.d];
+      h=`<h2>${esc(t.name)} is ${t.role==="m"?"Mafia":"not Mafia"}.</h2><p>Remember it, then hand the device back.</p><button class="btn" onclick="nextStep()">Close eyes</button>`;
+    }
+  }
+  else if(S.phase==="dawn"){
+    h=`<p class="dim">Day ${S.round}</p><h2>${S.win?(S.win==="Town"?"Town wins.":"Mafia wins."):"Everyone, open your eyes."}</h2><p>${esc(S.msg)}</p>
+    ${S.out!=null?`<div class="card">${esc(S.players[S.out].name)} was a <b>${ROLE[S.players[S.out].role]}</b>.</div>`:""}
+    ${S.win?endCards():`<button class="btn" onclick="S.phase='vote';S.sel=null;render()">Start discussion and vote</button>`}`;
+  }
+  else if(S.phase==="vote"){
+    h=`<h2>Who is the Mafia?</h2><p>Discuss out loud. When the group decides, pick who gets voted out.</p>
+    <div class="list">${alive().map(p=>`<button class="row ${S.sel===S.players.indexOf(p)?"sel":""}" onclick="S.sel=${S.players.indexOf(p)};render()">${esc(p.name)}</button>`).join("")}</div>
+    <button class="btn" ${S.sel==null?"disabled":""} onclick="vote()">Vote out ${S.sel==null?"":esc(S.players[S.sel].name)}</button>
+    <button class="btn ghost" onclick="S.round++;beginNight()">Tie: nobody is voted out</button>`;
+  }
+  else if(S.phase==="result"){
+    const p=S.players[S.out];
+    h=`<h2>${esc(p.name)} is out.</h2><div class="card">${esc(p.name)} was a <b>${ROLE[p.role]}</b>.</div>
+    ${S.win?`<h2>${S.win==="Town"?"Town wins.":"Mafia wins."}</h2>${endCards()}`:`<button class="btn" onclick="S.round++;beginNight()">Night falls</button>`}`;
+  }
+  a.className=night?"night":"";
+  a.innerHTML=(S.phase!=="setup"?`<div class="top"><span>${alive().length} alive</span><button onclick="if(confirm('Quit this game?')){S.phase='setup';render()}">Quit</button></div>`:"")+h;
+}
+function endCards(){
+  return `<div class="list">${S.players.map(p=>`<div class="row ${p.alive?"":"dead"}"><span>${esc(p.name)}</span><span class="dim">${ROLE[p.role]}</span></div>`).join("")}</div>
+  <button class="btn" onclick="start()">Play again, same players</button><button class="btn ghost" onclick="S.phase='setup';render()">Change players</button>`;
+}
+function lock(r){S.night[r]=S.sel;if(r==="d"){S.sub="result";render()}else nextStep()}
+function vote(){S.out=S.sel;S.players[S.sel].alive=false;S.win=checkWin();S.phase="result";render()}
+function addP(){const i=$("#nm"),v=i.value.trim();if(!v||S.names.length>=15)return;S.names.push(v);render();$("#nm").focus()}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="nm")addP()});
+render();
+</script>
+</body>
+</html>
